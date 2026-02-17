@@ -1,8 +1,5 @@
 
-import { GoogleGenAI, Type } from "@google/genai";
 import { GeneratedApp } from "../types";
-
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 export async function generateAppSimulation(prompt: string, fileContext?: string): Promise<GeneratedApp> {
   const systemPrompt = fileContext 
