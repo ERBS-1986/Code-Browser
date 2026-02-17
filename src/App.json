@@ -1,0 +1,57 @@
+import { useState, useEffect } from "react"
+import Preview from "./components/Preview"
+import CodePanel from "./components/CodePanel"
+
+export default function App() {
+  const [htmlContent, setHtmlContent] = useState("")
+  const [hoveredElement, setHoveredElement] = useState(null)
+
+  const handleFolder = (e) => {
+    const files = Array.from(e.target.files)
+
+    const indexFile = files.find(
+      (file) => file.name.toLowerCase() === "index.html"
+    )
+
+    if (!indexFile) {
+      alert("index.html não encontrado na pasta.")
+      return
+    }
+
+    const reader = new FileReader()
+
+    reader.onload = (event) => {
+      setHtmlContent(event.target.result)
+    }
+
+    reader.readAsText(indexFile)
+  }
+
+  useEffect(() => {
+    window.addEventListener("message", (event) => {
+      if (event.data.type === "ELEMENT_HOVER") {
+        setHoveredElement(event.data)
+      }
+    })
+  }, [])
+
+  return (
+    <div style={{ display: "flex", height: "100vh" }}>
+      
+      {/* LEFT SIDE */}
+      <div style={{ width: "50%", borderRight: "1px solid #ccc", display: "flex", flexDirection: "column" }}>
+        <CodePanel html={htmlContent} hoveredElement={hoveredElement} />
+      </div>
+
+      {/* RIGHT SIDE */}
+      <div style={{ width: "50%", padding: "10px" }}>
+        <input
+          type="file"
+          webkitdirectory="true"
+          onChange={handleFolder}
+        />
+        <Preview html={htmlContent} />
+      </div>
+    </div>
+  )
+}

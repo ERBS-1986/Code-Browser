@@ -1,0 +1,57 @@
+export default function CodePanel({ html, hoveredElement }) {
+
+  const findCodeSnippet = () => {
+    if (!html || !hoveredElement) return ""
+
+    const { tag, id } = hoveredElement
+
+    if (id) {
+      const regex = new RegExp(
+        `<${tag.toLowerCase()}[^>]*id=["']${id}["'][^>]*>`,
+        "i"
+      )
+      const match = html.match(regex)
+      return match ? match[0] : "Elemento não encontrado."
+    }
+
+    return `<${tag}>`
+  }
+
+  const explanation = () => {
+    if (!hoveredElement) return "Passe o mouse sobre um elemento."
+
+    return `
+Tag: ${hoveredElement.tag}
+ID: ${hoveredElement.id || "Nenhum"}
+Classe: ${hoveredElement.className || "Nenhuma"}
+
+Essa parte representa um elemento HTML da interface.
+`
+  }
+
+  return (
+    <>
+      {/* PARTE SUPERIOR - CÓDIGO */}
+      <div style={{
+        flex: 1,
+        overflow: "auto",
+        padding: "10px",
+        background: "#111",
+        color: "#0f0",
+        fontFamily: "monospace"
+      }}>
+        <pre>{findCodeSnippet()}</pre>
+      </div>
+
+      {/* PARTE INFERIOR - EXPLICAÇÃO */}
+      <div style={{
+        flex: 1,
+        overflow: "auto",
+        padding: "10px",
+        borderTop: "1px solid #ccc"
+      }}>
+        <pre>{explanation()}</pre>
+      </div>
+    </>
+  )
+}
