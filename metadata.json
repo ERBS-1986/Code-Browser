@@ -1,0 +1,5 @@
+{
+  "name": "AI Code Browser Simulator",
+  "description": "An interactive environment that simulates a browser, allowing users to 'run' AI-generated applications. Hovering over UI elements instantly reveals their underlying code and detailed technical explanations.",
+  "requestFramePermissions": []
+}
