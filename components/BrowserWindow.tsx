@@ -1,110 +1,143 @@
-
 import React from 'react';
-import { CodeElement, GeneratedApp } from '../types';
-import { RefreshCw, Shield, ChevronLeft, ChevronRight, Home, MoreVertical } from 'lucide-react';
+import { FileNode } from '../types';
+import { RefreshCw, Shield, ChevronLeft, ChevronRight, Home, MoreVertical, Globe, Folder, File, ChevronDown } from 'lucide-react';
 
 interface BrowserWindowProps {
-  app: GeneratedApp | null;
+  rootFolder: FileNode | null;
   loading: boolean;
-  onHover: (element: CodeElement | null) => void;
-  url: string;
+  onFileSelect: (file: FileNode) => void;
+  selectedFile: FileNode | null;
 }
 
-const BrowserWindow: React.FC<BrowserWindowProps> = ({ app, loading, onHover, url }) => {
+const FileItem: React.FC<{
+  node: FileNode;
+  level: number;
+  onSelect: (file: FileNode) => void;
+  selectedFile: FileNode | null;
+}> = ({ node, level, onSelect, selectedFile }) => {
+  const [isOpen, setIsOpen] = React.useState(level === 0);
+  const isSelected = selectedFile?.path === node.path;
+
+  const handleClick = () => {
+    if (node.type === 'directory') {
+      setIsOpen(!isOpen);
+    } else {
+      onSelect(node);
+    }
+  };
+
   return (
-    <div className="flex-1 flex flex-col bg-white text-gray-900 overflow-hidden m-4 rounded-xl shadow-2xl border border-slate-700">
+    <div>
+      <div
+        onClick={handleClick}
+        className={`flex items-center gap-2 py-2 px-3 rounded-lg cursor-pointer transition-all ${isSelected ? 'bg-blue-50 text-blue-600' : 'hover:bg-gray-100'
+          }`}
+        style={{ paddingLeft: `${level * 16 + 12}px` }}
+      >
+        {node.type === 'directory' ? (
+          <>
+            <ChevronDown size={14} className={`transition-transform ${isOpen ? '' : '-rotate-90 text-gray-400'}`} />
+            <Folder size={16} className={isOpen ? 'text-yellow-500' : 'text-gray-400'} />
+          </>
+        ) : (
+          <>
+            <div className="w-3.5" />
+            <File size={16} className={isSelected ? 'text-blue-500' : 'text-gray-400'} />
+          </>
+        )}
+        <span className={`text-sm truncate ${isSelected ? 'font-bold' : 'font-medium text-gray-700'}`}>
+          {node.name}
+        </span>
+      </div>
+
+      {node.type === 'directory' && isOpen && node.children && (
+        <div className="animate-in slide-in-from-top-1 duration-200">
+          {node.children.map(child => (
+            <FileItem
+              key={child.path}
+              node={child}
+              level={level + 1}
+              onSelect={onSelect}
+              selectedFile={selectedFile}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+const BrowserWindow: React.FC<BrowserWindowProps> = ({ rootFolder, loading, onFileSelect, selectedFile }) => {
+  return (
+    <div className="flex-1 flex flex-col bg-white text-gray-900 overflow-hidden m-6 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] border border-slate-200/50">
       {/* Browser Toolbar */}
-      <div className="h-12 bg-gray-100 flex items-center px-4 gap-4 border-b border-gray-300">
-        <div className="flex gap-1.5">
-          <div className="w-3 h-3 rounded-full bg-red-400 shadow-inner"></div>
-          <div className="w-3 h-3 rounded-full bg-yellow-400 shadow-inner"></div>
-          <div className="w-3 h-3 rounded-full bg-green-400 shadow-inner"></div>
+      <div className="h-14 bg-gray-50/80 backdrop-blur-md flex items-center px-6 gap-6 border-b border-gray-200">
+        <div className="flex gap-2">
+          <div className="w-3.5 h-3.5 rounded-full bg-red-400/80 shadow-sm"></div>
+          <div className="w-3.5 h-3.5 rounded-full bg-yellow-400/80 shadow-sm"></div>
+          <div className="w-3.5 h-3.5 rounded-full bg-green-400/80 shadow-sm"></div>
         </div>
-        <div className="flex items-center gap-3 text-gray-500">
-          <ChevronLeft size={18} />
-          <ChevronRight size={18} />
-          <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
+        <div className="flex items-center gap-4 text-gray-400">
+          <ChevronLeft size={20} className="hover:text-gray-600 transition-colors" />
+          <ChevronRight size={20} className="hover:text-gray-600 transition-colors" />
+          <RefreshCw size={18} className={`${loading ? "animate-spin text-blue-500" : "hover:text-gray-600 transition-colors"}`} />
         </div>
-        <div className="flex-1 h-8 bg-white rounded-md border border-gray-300 flex items-center px-3 gap-2 text-xs">
-          <Shield size={12} className="text-green-600" />
-          <span className="text-gray-400">https://</span>
-          <span className="text-gray-700 truncate">{url || "simulator.ai"}</span>
+        <div className="flex-1 h-9 bg-white rounded-lg border border-gray-200 flex items-center px-4 gap-3 text-xs shadow-sm shadow-black/5">
+          <Shield size={14} className="text-green-500 shrink-0" />
+          <span className="text-gray-400 select-none">file:///</span>
+          <span className="text-gray-800 font-medium truncate">{rootFolder?.name || "explorador"}</span>
         </div>
-        <div className="flex items-center gap-3 text-gray-500">
-          <Home size={18} />
-          <MoreVertical size={18} />
+        <div className="flex items-center gap-4 text-gray-400">
+          <Home size={20} className="hover:text-gray-600 transition-colors" />
+          <MoreVertical size={20} className="hover:text-gray-600 transition-colors" />
         </div>
       </div>
 
       {/* Viewport content */}
-      <div className="flex-1 overflow-auto p-8 bg-gray-50 flex flex-col">
+      <div className="flex-1 overflow-auto bg-white flex flex-col custom-scrollbar">
         {loading ? (
-          <div className="flex-1 flex flex-col items-center justify-center space-y-4">
-            <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-            <p className="text-gray-500 animate-pulse font-medium">Generating application code...</p>
-          </div>
-        ) : app ? (
-          <div className="max-w-4xl mx-auto w-full space-y-6">
-            <h1 className="text-3xl font-bold border-b pb-4 mb-6">{app.title}</h1>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {app.elements.map((el) => (
-                <div
-                  key={el.id}
-                  className={`p-6 rounded-xl border-2 transition-all duration-200 cursor-default bg-white shadow-sm
-                    hover:border-blue-500 hover:shadow-md hover:scale-[1.02] active:scale-[0.98]
-                    ${el.type === 'logic' ? 'col-span-full border-dashed border-slate-200 opacity-80' : 'border-transparent'}
-                  `}
-                  onMouseEnter={() => onHover(el)}
-                  onMouseLeave={() => onHover(null)}
-                >
-                  <div className="flex flex-col h-full">
-                    <span className="text-[10px] uppercase font-bold text-slate-400 mb-1">{el.type}</span>
-                    <h3 className="text-lg font-semibold mb-2">{el.name}</h3>
-                    
-                    {el.type === 'button' && (
-                      <button className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium shadow-sm hover:bg-blue-700 mt-auto">
-                        Interact with {el.name}
-                      </button>
-                    )}
-                    
-                    {el.type === 'input' && (
-                      <input 
-                        type="text" 
-                        placeholder={`Enter ${el.name.toLowerCase()}...`}
-                        className="border border-slate-300 rounded-lg px-3 py-2 mt-auto focus:ring-2 focus:ring-blue-500 outline-none" 
-                      />
-                    )}
-                    
-                    {el.type === 'card' && (
-                      <div className="text-slate-600 text-sm mt-auto">
-                        This is a container representing {el.name.toLowerCase()}. It holds structured information and nested components.
-                      </div>
-                    )}
-                    
-                    {el.type === 'logic' && (
-                      <div className="flex items-center gap-2 text-purple-600 font-mono text-xs">
-                        <Shield size={14} />
-                        <span>Background Process Logic</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
+          <div className="flex-1 flex flex-col items-center justify-center space-y-6">
+            <div className="relative">
+              <div className="w-16 h-16 border-4 border-blue-100 rounded-full"></div>
+              <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin absolute top-0 left-0"></div>
             </div>
-            
-            <div className="mt-12 p-6 bg-slate-100 rounded-lg border border-slate-200 text-slate-500 text-center italic text-sm">
-              The application logic is currently being simulated by Gemini based on the code shown in the left panel.
+            <div className="text-center">
+              <p className="text-lg font-bold text-gray-800 tracking-tight">Carregando Projeto</p>
+              <p className="text-sm text-gray-400 animate-pulse font-medium">Lendo estrutura de diretórios...</p>
+            </div>
+          </div>
+        ) : rootFolder ? (
+          <div className="p-4 max-w-2xl mx-auto w-full">
+            <div className="flex items-center gap-3 mb-8 pb-6 border-b border-gray-100">
+              <div className="p-3 bg-blue-50 text-blue-600 rounded-2xl">
+                <Folder size={24} />
+              </div>
+              <div>
+                <h1 className="text-2xl font-black text-gray-900 tracking-tight">{rootFolder.name}</h1>
+                <p className="text-xs text-gray-400 font-bold uppercase tracking-widest">Navegador Local</p>
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <FileItem
+                node={rootFolder}
+                level={0}
+                onSelect={onFileSelect}
+                selectedFile={selectedFile}
+              />
             </div>
           </div>
         ) : (
-          <div className="flex-1 flex flex-col items-center justify-center text-center max-w-md mx-auto">
-            <div className="w-20 h-20 bg-blue-50 text-blue-500 rounded-full flex items-center justify-center mb-6">
-              <Home size={40} />
+          <div className="flex-1 flex flex-col items-center justify-center text-center max-w-lg mx-auto space-y-8 animate-in fade-in zoom-in-95 duration-1000">
+            <div className="w-24 h-24 bg-blue-50 text-blue-500 rounded-[2.5rem] flex items-center justify-center shadow-2xl shadow-blue-500/10 rotate-3">
+              <Folder size={48} />
             </div>
-            <h2 className="text-2xl font-bold mb-2">Browser Simulator</h2>
-            <p className="text-gray-500 mb-8">
-              Type the name of an application in the address bar (e.g., "Budget Tracker", "Task Dashboard", "Landing Page") to see it come to life.
-            </p>
+            <div>
+              <h2 className="text-3xl font-black mb-3 text-gray-900 tracking-tight">Navegador de Código</h2>
+              <p className="text-gray-500 font-medium leading-relaxed">
+                Clique no botão "Project Folder" no topo para selecionar uma pasta local e começar a navegar pelos arquivos.
+              </p>
+            </div>
           </div>
         )}
       </div>

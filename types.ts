@@ -1,21 +1,17 @@
 
-export interface CodeElement {
-  id: string;
+export interface FileNode {
   name: string;
-  codeSnippet: string;
-  explanation: string;
-  type: 'button' | 'input' | 'card' | 'layout' | 'logic';
-}
-
-export interface GeneratedApp {
-  title: string;
-  fullCode: string;
-  elements: CodeElement[];
+  content: string;
+  path: string;
+  type: 'file' | 'directory';
+  children?: FileNode[];
 }
 
 export interface AppState {
-  currentApp: GeneratedApp | null;
+  rootFolder: FileNode | null;
+  selectedFile: FileNode | null;
   loading: boolean;
-  hoveredElement: CodeElement | null;
   url: string;
+  isSimulating?: boolean;
+  simulationUrl?: string | null;
 }

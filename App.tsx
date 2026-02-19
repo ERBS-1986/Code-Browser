@@ -1,78 +1,123 @@
 
 import React, { useState, useCallback, useRef } from 'react';
-import { AppState, CodeElement } from './types';
-import { generateAppSimulation } from './services/geminiService';
+import { AppState, FileNode } from './types';
 import CodePanel from './components/CodePanel';
 import ExplanationPanel from './components/ExplanationPanel';
+import { transform } from 'sucrase';
+import {
+  FolderOpen,
+  File,
+  ChevronRight,
+  ChevronDown,
+  Rocket,
+  Search,
+  Loader2,
+  ExternalLink,
+  Code,
+  Globe,
+  Monitor,
+  Code2
+} from 'lucide-react';
 import BrowserWindow from './components/BrowserWindow';
-import { Search, Monitor, Code2, Globe, FolderOpen } from 'lucide-react';
+import SimulationWindow from './components/SimulationWindow';
 
 const App: React.FC = () => {
   const [state, setState] = useState<AppState>({
-    currentApp: null,
+    rootFolder: null,
+    selectedFile: null,
     loading: false,
-    hoveredElement: null,
-    url: ''
+    url: '',
+    isSimulating: false,
+    simulationUrl: null
   });
 
-  const [inputUrl, setInputUrl] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleNavigate = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (!inputUrl.trim()) return;
+  const buildFileTree = async (files: File[]): Promise<FileNode | null> => {
+    if (files.length === 0) return null;
 
-    setState(prev => ({ ...prev, loading: true, url: inputUrl }));
-    
-    try {
-      const app = await generateAppSimulation(inputUrl);
-      setState(prev => ({ ...prev, currentApp: app, loading: false }));
-    } catch (error) {
-      console.error("Error generating app:", error);
-      setState(prev => ({ ...prev, loading: false }));
-      alert("Failed to generate application. Please try a different prompt.");
-    }
+    const root: FileNode = {
+      name: 'root',
+      path: '',
+      content: '',
+      type: 'directory',
+      children: []
+    };
+
+    const filePromises: Promise<void>[] = [];
+
+    files.forEach(file => {
+      const path = (file as any).webkitRelativePath || file.name;
+      const parts = path.split('/');
+      let current = root;
+
+      parts.forEach((part: string, index: number) => {
+        const isFile = index === parts.length - 1;
+        let node = current.children?.find(child => child.name === part);
+
+        if (!node) {
+          node = {
+            name: part,
+            path: parts.slice(0, index + 1).join('/'),
+            content: '',
+            type: isFile ? 'file' : 'directory',
+            children: isFile ? undefined : []
+          };
+          current.children?.push(node);
+        }
+
+        if (isFile) {
+          const targetNode = node;
+          filePromises.push(
+            file.text().then(text => {
+              targetNode.content = text;
+            })
+          );
+        } else {
+          current = node;
+        }
+      });
+    });
+
+    await Promise.all(filePromises);
+    return root;
   };
 
   const processFileList = async (files: FileList | File[], folderName: string) => {
-    const filesContent: string[] = [];
-    const allowedExts = ['html', 'css', 'js', 'ts', 'jsx', 'tsx', 'json'];
+    const fileArray = Array.from(files);
+    setState(prev => ({ ...prev, loading: true }));
 
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      const relativePath = (file as any).webkitRelativePath || file.name;
-      
-      // Skip node_modules and hidden files
-      if (relativePath.includes('node_modules') || relativePath.includes('/.')) continue;
-
-      const ext = file.name.split('.').pop()?.toLowerCase();
-      if (allowedExts.includes(ext || '')) {
-        try {
-          const text = await file.text();
-          filesContent.push(`--- FILE: ${relativePath} ---\n${text.slice(0, 5000)}`);
-        } catch (err) {
-          console.warn(`Could not read file ${relativePath}:`, err);
-        }
+    const root = await buildFileTree(fileArray);
+    if (root) {
+      root.name = folderName;
+      // Se tivermos apenas um filho e for uma pasta com o mesmo nome, descemos um nível (comum em webkitdirectory)
+      if (root.children?.length === 1 && root.children[0].type === 'directory' &&
+        (root.children[0].name === folderName || root.children[0].name === 'root')) {
+        root.children[0].name = folderName;
+        setState(prev => ({
+          ...prev,
+          rootFolder: root.children![0],
+          loading: false,
+          url: `local:///${folderName}`
+        }));
+        return;
       }
     }
 
-    if (filesContent.length === 0) {
-      throw new Error("No compatible web files found in the folder.");
-    }
-
-    const combinedContext = filesContent.join('\n\n');
-    const app = await generateAppSimulation(`Folder: ${folderName}`, combinedContext);
-    setState(prev => ({ ...prev, currentApp: app, loading: false }));
-    setInputUrl(folderName);
+    setState(prev => ({
+      ...prev,
+      rootFolder: root,
+      loading: false,
+      url: `local:///${folderName}`
+    }));
   };
 
   const handleOpenFolder = async () => {
-    // Try Modern File System Access API first
     try {
       if ('showDirectoryPicker' in window) {
         const directoryHandle = await (window as any).showDirectoryPicker();
-        setState(prev => ({ ...prev, loading: true, url: `local:///${directoryHandle.name}` }));
-        
+        setState(prev => ({ ...prev, loading: true }));
+
         const files: File[] = [];
         async function readDir(handle: any, path = "") {
           for await (const entry of handle.values()) {
@@ -92,11 +137,9 @@ const App: React.FC = () => {
         return;
       }
     } catch (error: any) {
-      // If security error (Cross-origin frame), fall back to input element
-      console.warn("showDirectoryPicker failed or restricted, falling back to input:", error.message);
+      console.warn("showDirectoryPicker failed or restricted:", error.message);
     }
 
-    // Fallback: Use hidden input element
     if (fileInputRef.current) {
       fileInputRef.current.click();
     }
@@ -106,24 +149,160 @@ const App: React.FC = () => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
-    // Get folder name from the first file's path
     const folderName = files[0].webkitRelativePath.split('/')[0] || "Selected Folder";
-    
-    setState(prev => ({ ...prev, loading: true, url: `local:///${folderName}` }));
-    try {
-      await processFileList(files, folderName);
-    } catch (error: any) {
-      console.error("Error reading folder:", error);
-      setState(prev => ({ ...prev, loading: false }));
-      alert(`Error reading folder: ${error.message}`);
-    }
-    // Reset input so it triggers again for same folder
+    await processFileList(files, folderName);
     e.target.value = '';
   };
 
-  const handleHover = useCallback((element: CodeElement | null) => {
-    setState(prev => ({ ...prev, hoveredElement: element }));
+  const handleFileSelect = useCallback((file: FileNode) => {
+    setState(prev => ({ ...prev, selectedFile: file, isSimulating: false }));
   }, []);
+
+  const findIndexHtml = (node: FileNode): FileNode | null => {
+    if (node.type === 'file' && node.name.toLowerCase() === 'index.html') {
+      return node;
+    }
+    if (node.children) {
+      for (const child of node.children) {
+        const found = findIndexHtml(child);
+        if (found) return found;
+      }
+    }
+    return null;
+  };
+
+  const handleLaunch = async () => {
+    if (!state.rootFolder) return;
+
+    setState(prev => ({ ...prev, loading: true }));
+
+    const indexFile = findIndexHtml(state.rootFolder);
+
+    if (!indexFile || !indexFile.content) {
+      alert("⚠️ Atenção: Não encontramos um arquivo 'index.html' na raiz ou subpastas deste projeto. Certifique-se de carregar a pasta correta para simular a aplicação.");
+      setState(prev => ({ ...prev, loading: false }));
+      return;
+    }
+
+    try {
+      const blobUrls: Record<string, string> = {};
+      const importMap: Record<string, string> = {};
+      const rootPath = state.rootFolder.path;
+
+      const createBlobs = (node: FileNode) => {
+        if (node.type === 'file' && node.content) {
+          let content = node.content;
+          let mimeType = 'text/plain';
+          const ext = node.name.split('.').pop()?.toLowerCase();
+
+          if (ext === 'html') mimeType = 'text/html';
+          else if (ext === 'css') mimeType = 'text/css';
+          else if (ext === 'js') mimeType = 'application/javascript';
+          else if (ext === 'json') mimeType = 'application/json';
+          else if (['png', 'jpg', 'jpeg', 'gif', 'svg'].includes(ext || '')) {
+            mimeType = ext === 'svg' ? 'image/svg+xml' : `image/${ext}`;
+          }
+
+          // Transpilação para TS/TSX
+          if (ext === 'ts' || ext === 'tsx') {
+            try {
+              const result = transform(content, {
+                transforms: ['typescript', 'jsx'],
+                production: false,
+              });
+              content = result.code;
+              mimeType = 'application/javascript';
+            } catch (e) {
+              console.error(`Erro ao transpilar ${node.name}:`, e);
+            }
+          }
+
+          const blob = new Blob([content], { type: mimeType });
+          const url = URL.createObjectURL(blob);
+
+          const relativePath = node.path.startsWith(rootPath + '/')
+            ? node.path.slice(rootPath.length + 1)
+            : (node.path === rootPath ? node.name : node.path);
+
+          blobUrls[relativePath] = url;
+
+          // Registrar no Import Map
+          importMap[relativePath] = url;
+          importMap['./' + relativePath] = url;
+          importMap['/' + relativePath] = url;
+
+          // Versão sem extensão para módulos JS/TS/TSX
+          if (['js', 'ts', 'tsx'].includes(ext || '')) {
+            const baseName = relativePath.slice(0, relativePath.lastIndexOf('.'));
+            importMap[baseName] = url;
+            importMap['./' + baseName] = url;
+            importMap['/' + baseName] = url;
+          }
+        }
+        if (node.children) node.children.forEach(createBlobs);
+      };
+
+      createBlobs(state.rootFolder);
+
+      try {
+        let processedHtml = indexFile.content;
+
+        // Injetar o Import Map no HTML (mesclando com o existente se houver)
+        let existingImports = {};
+        const importMapRegex = /<script type="importmap">([\s\S]*?)<\/script>/i;
+        const match = processedHtml.match(importMapRegex);
+
+        if (match) {
+          try {
+            const existingMap = JSON.parse(match[1]);
+            existingImports = existingMap.imports || {};
+            processedHtml = processedHtml.replace(importMapRegex, ''); // Remove antigo
+          } catch (e) {
+            console.warn("Falha ao analisar importmap existente", e);
+          }
+        }
+
+        const mergedImports = { ...existingImports, ...importMap };
+        const importMapScript = `
+<script type="importmap">
+{
+  "imports": ${JSON.stringify(mergedImports, null, 2)}
+}
+</script>`;
+
+        if (processedHtml.includes('<head>')) {
+          processedHtml = processedHtml.replace('<head>', '<head>' + importMapScript);
+        } else {
+          processedHtml = importMapScript + processedHtml;
+        }
+
+        // Substituir index.tsx por sua versão Blob (JavaScript) no HTML
+        Object.keys(blobUrls).forEach(path => {
+          if (path.endsWith('.tsx') || path.endsWith('.ts')) {
+            const escapedPath = path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const regex = new RegExp(`src=["'](\\./|/)?${escapedPath}["']`, 'gi');
+            processedHtml = processedHtml.replace(regex, `src="${blobUrls[path]}"`);
+          }
+        });
+
+        const finalBlob = new Blob([processedHtml], { type: 'text/html' });
+        const simulationUrl = URL.createObjectURL(finalBlob);
+
+        setState(prev => ({
+          ...prev,
+          isSimulating: true,
+          simulationUrl,
+          loading: false
+        }));
+      } catch (error) {
+        console.error("Erro ao processar HTML da simulação:", error);
+        setState(prev => ({ ...prev, loading: false }));
+      }
+    } catch (error) {
+      console.error("Erro ao iniciar simulação:", error);
+      setState(prev => ({ ...prev, loading: false }));
+    }
+  };
 
   return (
     <div className="flex flex-col h-screen w-screen bg-slate-950">
@@ -150,45 +329,36 @@ const App: React.FC = () => {
           </div>
         </div>
 
-        <div className="flex-1 max-w-3xl flex gap-2 items-center">
-          <form onSubmit={handleNavigate} className="flex-1 relative group">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-blue-400 transition-colors" size={18} />
-            <input
-              type="text"
-              className="w-full bg-slate-800 border border-slate-700 rounded-full py-2.5 pl-12 pr-24 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all placeholder:text-slate-500"
-              placeholder="App name or URL... (e.g. 'Simple CRM')"
-              value={inputUrl}
-              onChange={(e) => setInputUrl(e.target.value)}
-            />
-            <button 
-              type="submit"
-              className="absolute right-1.5 top-1.5 bottom-1.5 px-5 bg-blue-600 hover:bg-blue-500 text-white rounded-full text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 disabled:opacity-50"
-              disabled={state.loading}
-            >
-              {state.loading ? '...' : 'LAUNCH'}
-            </button>
-          </form>
+        <div className="flex-1 flex justify-center gap-4 items-center">
+          <button
+            onClick={handleLaunch}
+            disabled={!state.rootFolder || state.loading}
+            className="flex items-center gap-3 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-800 disabled:opacity-50 text-white px-8 py-2.5 rounded-full text-xs font-black transition-all active:scale-95 shadow-lg shadow-blue-500/20 group uppercase tracking-[0.2em]"
+          >
+            <Rocket size={18} className="group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+            Launch App
+          </button>
 
           <button
             onClick={handleOpenFolder}
-            className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 px-4 py-2.5 rounded-full text-xs font-bold transition-all active:scale-95 group"
-            title="Open Local Folder Project"
+            className="flex items-center gap-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 px-6 py-2.5 rounded-full text-xs font-bold transition-all active:scale-95 group uppercase tracking-widest"
+            title="Abrir Pasta de Projeto"
             disabled={state.loading}
           >
-            <FolderOpen size={16} className="text-yellow-500 group-hover:scale-110 transition-transform" />
-            <span className="hidden md:inline uppercase tracking-wider">Project Folder</span>
+            <FolderOpen size={18} className="text-yellow-500 group-hover:scale-110 transition-transform" />
+            Project Folder
           </button>
         </div>
 
         <div className="flex items-center gap-6">
           <div className="hidden lg:flex items-center gap-2 text-slate-400 border-r border-slate-800 pr-6">
-             <div className="flex flex-col items-end">
-               <span className="text-[10px] font-bold uppercase text-slate-500">Engine Status</span>
-               <span className="text-xs text-green-500 flex items-center gap-1.5 font-medium">
-                 <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
-                 Gemini 3 Ready
-               </span>
-             </div>
+            <div className="flex flex-col items-end">
+              <span className="text-[10px] font-bold uppercase text-slate-500">Estado do Navegador</span>
+              <span className="text-xs text-blue-500 flex items-center gap-1.5 font-medium">
+                <div className="w-2 h-2 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]"></div>
+                Ativo
+              </span>
+            </div>
           </div>
           <div className="flex gap-2">
             <button className="p-2 hover:bg-slate-800 rounded-lg text-slate-400"><Monitor size={20} /></button>
@@ -199,39 +369,49 @@ const App: React.FC = () => {
 
       {/* Main Split View */}
       <main className="flex-1 flex overflow-hidden">
-        {/* Left Panel (Code & Explanation) */}
-        <div className="w-[480px] border-r border-slate-800 flex flex-col bg-slate-900 shadow-2xl z-0">
-          <CodePanel 
-            fullCode={state.currentApp?.fullCode || ""} 
-            hoveredElement={state.hoveredElement} 
-          />
-          <ExplanationPanel element={state.hoveredElement} />
+        {/* Left Panel (Code & Explanation) - 40% width */}
+        <div className="w-[40%] min-w-[320px] max-w-[600px] border-r border-slate-800 flex flex-col bg-slate-900 shadow-2xl z-0">
+          <div className="flex-1 overflow-hidden flex flex-col">
+            <CodePanel
+              file={state.selectedFile}
+            />
+          </div>
+          <div className="h-1/3 min-h-[200px] border-t border-slate-800">
+            <ExplanationPanel file={state.selectedFile} />
+          </div>
         </div>
 
-        {/* Right Panel (Browser Simulation) */}
+        {/* Right Panel (File Explorer) - 60% width */}
         <div className="flex-1 bg-slate-950 flex flex-col relative overflow-hidden">
           <div className="absolute top-4 left-1/2 -translate-x-1/2 px-4 py-1.5 bg-blue-500/10 border border-blue-500/20 text-blue-500 rounded-full text-[10px] font-black uppercase tracking-[0.2em] z-10 pointer-events-none backdrop-blur-sm shadow-xl">
-            Live Execution Simulation
+            {state.isSimulating ? "Live Execution Simulation" : "Explorador de Arquivos"}
           </div>
-          <BrowserWindow 
-            app={state.currentApp} 
-            loading={state.loading} 
-            onHover={handleHover} 
-            url={state.url}
-          />
+          {state.isSimulating ? (
+            <SimulationWindow
+              url={state.simulationUrl ?? null}
+              onClose={() => setState(prev => ({ ...prev, isSimulating: false }))}
+            />
+          ) : (
+            <BrowserWindow
+              rootFolder={state.rootFolder}
+              loading={state.loading}
+              onFileSelect={handleFileSelect}
+              selectedFile={state.selectedFile}
+            />
+          )}
         </div>
       </main>
 
       {/* Footer / Status Bar */}
       <footer className="h-8 border-t border-slate-800 bg-slate-900 flex items-center px-4 justify-between text-[10px] font-bold text-slate-500 uppercase tracking-widest">
         <div className="flex items-center gap-4">
-          <span className="flex items-center gap-1"><Monitor size={12} /> Real-time Simulation</span>
-          <span className="flex items-center gap-1"><Globe size={12} /> Sandbox: Isolated</span>
+          <span className="flex items-center gap-1"><Monitor size={12} /> Navegação Local</span>
+          <span className="flex items-center gap-1"><Globe size={12} /> Sandbox: Safe Mode</span>
         </div>
         <div className="flex items-center gap-4">
-          <span className="text-blue-500">v2.5.0-Project-Sync</span>
-          <div className="flex items-center gap-1 text-green-500">
-            AI Rendering Active <div className="w-1.5 h-1.5 rounded-full bg-green-500"></div>
+          <span className="text-blue-500">v3.0.0-Direct-Browser</span>
+          <div className="flex items-center gap-1 text-slate-600">
+            AI Disabled <div className="w-1.5 h-1.5 rounded-full bg-slate-800"></div>
           </div>
         </div>
       </footer>
